@@ -1,0 +1,8 @@
+# Large EasyEDA Pro exports — regenerate from the project archive when needed.
+# Kept out of git deliberately: the STEP alone is 19 MB.
+3D_*.step
+3DShell_*.zip
+Gerber_*.zip
+ProPrj_*.epro2
+BOM_*.ods
+Gerber_*/
