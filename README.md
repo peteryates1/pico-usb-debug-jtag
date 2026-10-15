@@ -425,6 +425,23 @@ with a Pico 1 (RP2040, rev B2) in place of the schematic's Pico 2.
 | EP4CGX150 on J5 | IDCODE `0x028040dd`; `jtagconfig` `028040DD EP4CGX150` |
 | **Configure** | `jop_dbfpga.sof` (4.88 MB) in 72 s, programmer start to end; DoAll 68/68 on the board afterwards |
 
+### Cycling test (2026-10-15, R15 still off)
+
+Ten cycles, each: pin-level IDCODE, ONE single-try Quartus chain scan
+(`JTAG_SCAN_TRIES=1`), a full configuration of `jop_dbfpga.sof`, then DoAll over
+the board's console. Ten single-try scans before and after.
+
+| Check | Result |
+|-------|--------|
+| Single-try chain scans | **30/30** (10 before, 10 in-cycle, 10 after) |
+| Configurations | **10/10**, 74-75 s each |
+| DoAll | **68/68 every cycle**, no failures, no uncaught exceptions |
+| USB | same bus:dev throughout — never re-enumerated |
+
+The breadboard cable read 3/10 single-try on the same board in August, and later
+died with the cable re-enumerating. Nothing of that kind here so far; worth
+re-running after some days of use, since that is when the breadboard one went.
+
 ### Fault 1, fixed: a solder bridge across R15 held DIR low
 
 With VTREF up the IDCODE read `0x00000000`: TDO showed only R16's pull-down.
