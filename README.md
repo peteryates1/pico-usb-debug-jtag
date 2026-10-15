@@ -411,6 +411,73 @@ VTREF on header pin 4 is what makes the cable safe across a mixed stack, and is
 the single most important thing not to shortcut when wiring a breadboard
 version.
 
+## Bring-up on the PCB: JTAG0 (2026-10-15)
+
+The PCB, partially populated for JTAG0 (U3–U6, R15, R16, R22–R25, C5–C8, J5),
+with a Pico 1 (RP2040, rev B2) in place of the schematic's Pico 2.
+
+| Step | Result |
+|------|--------|
+| Firmware | `../pico-usb-blaster`, `-DBOARD_TYPE=2 -DJTAG_CLKDIV=5 -DTDO_DIAG_PULLDOWN=0`, fresh build dir `src/build-jtag0` |
+| Flash | over USB, not SWD: the blank Pico boots as `RP2 Boot`, then `picotool load -v -x pico_usb_blaster.uf2` |
+| Enumerates | `09fb:6001`, iManufacturer `Pico`, iProduct `USB Blaster`, serial **`e66440a2`** |
+| No target on J5 | TDO=1, IDCODE `0xffffffff` — healthy: no VTREF, shifters off |
+| EP4CGX150 on J5 | IDCODE `0x028040dd`; `jtagconfig` `028040DD EP4CGX150` |
+| **Configure** | `jop_dbfpga.sof` (4.88 MB) in 72 s, programmer start to end; DoAll 68/68 on the board afterwards |
+
+### Fault 1, fixed: a solder bridge across R15 held DIR low
+
+With VTREF up the IDCODE read `0x00000000`: TDO showed only R16's pull-down.
+With TCK/TMS/TDI parked high by `jtag_wiggle`:
+
+| Point | Read | Expected |
+|-------|------|----------|
+| J5.4 VTREF | 2.5 V | 2.5 V |
+| GP11 / DIR | **0.72 V** | 3.3 V |
+| J5.1 TCK | 0 V | 2.5 V |
+| Pico pin 26 (GP20, TCK) | 0.22 V | 3.3 V |
+| J5.5 / J5.9 (TMS / TDI) | 2.82 V | 2.5 V — the FPGA board's pull-ups, not our drive |
+| Pico pins 24 / 22 (GP18 / GP17) | 3.26 V | 3.3 V |
+
+A DRIVEN pin that sits at 0.72 V is heavily loaded: GP11 to GND measured
+**20 Ω**. R15 measures 10 kΩ out of circuit; with it removed GP11 reads 11.2 kΩ
+(the unpowered chips' protection diodes) and the chain works — the short was
+solder bridging R15's pads. R15 is OFF the board at the moment; refit it, then
+expect ~5 kΩ unpowered (10k in parallel with that diode path), not tens of ohms.
+
+**While DIR is low and VTREF is up, the outbound shifters drive the Pico's
+TCK/TMS/TDI pads against the Pico's own outputs** — tens of mA per pin, for as
+long as the target stays powered. Power the target down until DIR is fixed.
+
+### Fault 2, open: SWD over J3 does not connect
+
+OpenOCD through the Raspberry Pi Debug Probe (`adapter serial
+E6647C740343412F`, `target/rp2040.cfg`): `Too long SWD WAIT, issuing DAPABORT`
+then `Failed to connect multidrop rp2040.dap0`, at 5 MHz, 1 MHz and 500 kHz,
+with the Pico powered and running. The same probe flashed the breadboard Pico
+in August. Two suspects:
+
+1. **SWCLK and SWDIO swapped by the footprint.** The EasyEDA "Raspberry Pi
+   Pico 2" part names pad 41 `SWDIO` and pad 43 `SWCLK`. In the footprint
+   (`COMM-SMD_L51.0-W21.0-P2.54_SC0916`) pad 41 is the debug pad next to pin 20
+   (GP15), and pinout references put the Pico's SWCLK on that side (order
+   SWCLK, GND, SWDIO; SWCLK on the left in a USB-up top view). Not yet checked
+   against Raspberry Pi's datasheet. J3's own order (1 SWCLK, 2 GND, 3 SWDIO)
+   matches the Raspberry Pi debug connector, so the cable is not the problem.
+2. **The pads are not joined.** The Pico's SWD pins are plated holes, not
+   castellations; pads 41–43 under them connect only if solder was fed into
+   the holes.
+
+Settle it with continuity from J3.1 to the Pico debug pad next to GP15.
+
+### Flashing without SWD, from a VM
+
+- The Pico is a different USB device in each mode — `2e8a:0003 RP2 Boot` in
+  BOOTSEL, `09fb:6001` under this firmware — so a VM passthrough rule made for
+  one does not cover the other. Map both.
+- `picotool --ser E0C9125B0D9B` (the RP2 Boot USB serial) finds nothing; with a
+  single BOOTSEL device attached, the unfiltered command works.
+
 ### Host tools
 
 `jtag_pintest` and `jtag_wiggle` (both in `../pico-usb-blaster`) accept three
