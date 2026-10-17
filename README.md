@@ -127,7 +127,7 @@ whose `DIR` is **hard-wired to GND**, so it is permanently target→Pico.
 
 | Ref | Type | Pin 1 | Pin 2 | Pin 3 | Notes |
 |-----|------|-------|-------|-------|-------|
-| **J3** | JST SH 3-pin | SWCLK | GND | SWDIO | Debug **the Pico itself**; matches the Pico 1/2 3-pin debug header order |
+| **J3** | JST SH 3-pin | SWCLK | GND | SWDIO | Debug **the Pico itself**. Labelled per the Raspberry Pi debug connector spec, but on this revision pin 1 reaches the Pico's SWDIO and pin 3 its SWCLK: use a reversed cable (see Fault 2) |
 | **J1** | JST SH 3-pin | TX | GND | RX | UART A — TX ← GP4 via 100 Ω (R1); RX → GP6 via 100 Ω (R2) **and** → 74LVC2G17 schmitt → GP5 (R3/U2A) |
 | **J2** | JST SH 3-pin | TX | GND | RX | UART B — TX ← GP12 via 100 Ω (R4); RX → GP14 via 100 Ω (R5) **and** → schmitt → GP13 (R6/U2B) |
 | **J4** | JST SH 3-pin | GP0 | GND | GP1 | UART C — direct, no series R, no buffer |
@@ -419,7 +419,7 @@ with a Pico 1 (RP2040, rev B2) in place of the schematic's Pico 2.
 | Step | Result |
 |------|--------|
 | Firmware | `../pico-usb-blaster`, `-DBOARD_TYPE=2 -DJTAG_CLKDIV=5 -DTDO_DIAG_PULLDOWN=0`, fresh build dir `src/build-jtag0` |
-| Flash | over USB: the blank Pico boots as `RP2 Boot`, then `picotool load -v -x pico_usb_blaster.uf2`. SWD on J3 also works, with a good straight cable (see Fault 2) |
+| Flash | over USB: the blank Pico boots as `RP2 Boot`, then `picotool load -v -x pico_usb_blaster.uf2`. SWD on J3 works only with a REVERSED cable: the board swaps SWCLK/SWDIO (see Fault 2) |
 | Enumerates | `09fb:6001`, iManufacturer `Pico`, iProduct `USB Blaster`, serial **`e66440a2`** |
 | No target on J5 | TDO=1, IDCODE `0xffffffff` — healthy: no VTREF, shifters off |
 | EP4CGX150 on J5 | IDCODE `0x028040dd`; `jtagconfig` `028040DD EP4CGX150` |
@@ -471,24 +471,36 @@ parallel with that diode path), not tens of ohms.
 TCK/TMS/TDI pads against the Pico's own outputs** — tens of mA per pin, for as
 long as the target stays powered. Power the target down until DIR is fixed.
 
-### Fault 2, resolved: SWD over J3 failed because of the cable (2026-10-17)
+### Fault 2, found: J3's SWCLK and SWDIO are swapped at the Pico (2026-10-17)
 
 OpenOCD through the Raspberry Pi Debug Probe (`adapter serial
 E6647C740343412F`, `target/rp2040.cfg`) gave `Too long SWD WAIT, issuing
-DAPABORT` then `Failed to connect multidrop rp2040.dap0`, at 5 MHz, 1 MHz and
-500 kHz. Three cables:
+DAPABORT` then `Failed to connect multidrop rp2040.dap0` at every speed with the
+Debug Probe's own straight cable. A cable whose ends are reversed connects.
 
-| Cable | Result |
-|-------|--------|
-| the original | fails |
-| one with its two signal wires crossed | fails |
-| a straight one from the same batch | **connects**: both Cortex-M0+ cores examined |
+**The PCB is crossed, and the EasyEDA part is why.**
 
-**The board is right; the original cable was not.** J3 and the Pico's debug pads
-are wired correctly. An earlier note here blamed the EasyEDA "Pico 2" part for
-swapping SWCLK and SWDIO, from the footprint's pad positions plus pinout pages;
-that inference was wrong, and the crossed cable failing confirms the board
-needs a straight-through cable.
+- Raspberry Pi's pinout drawing, titled "For Raspberry Pi Pico 1 and Raspberry
+  Pi Pico 2", puts the debug pins in the order SWCLK, GND, SWDIO, viewed from
+  the top with USB up. **SWCLK is on the pin 20 (GP15) side.**
+- The footprint (`COMM-SMD_L51.0-W21.0-P2.54_SC0916`) puts pad 41 on the pins
+  1-20 side, i.e. at the Pico's physical SWCLK. But the "Raspberry Pi Pico 2"
+  symbol names pad 41 **SWDIO** and pad 43 **SWCLK**.
+- So net `PICO_SWCLK`, which goes to J3 pin 1, lands on the Pico's SWDIO, and
+  `PICO_SWDIO` (J3 pin 3) lands on SWCLK.
+- J3 itself follows the Raspberry Pi 3-pin Debug Connector Specification by
+  name: pin 1 SC (SWCLK), pin 2 GND, pin 3 SD (SWDIO), joined by a
+  **straight-through (pin 1 to pin 1) cable**, which is what the Debug Probe
+  ships with. With that cable the probe's SWCLK reaches the Pico's SWDIO, which
+  is why it fails. A reversed cable (pin 1 to pin 3) undoes the board's swap.
+
+**For this board:** use a reversed cable, and mark it — it fails on every other
+Raspberry Pi target. **For the next revision:** swap the two nets at U1
+(`PICO_SWCLK` to pad 41, `PICO_SWDIO` to pad 43), or fix the symbol's pin names
+in the library so pad 41 is SWCLK and pad 43 SWDIO.
+
+(An earlier version of this note, written the same morning, blamed the cable
+and called the footprint right. That assumed the working cable was straight.)
 
 With SWD working, the firmware's pin state read back from the RP2040 (JTAG0
 profile, idle, R15 refitted):
@@ -614,6 +626,9 @@ does not select by bus:dev or name may grab the wrong cable — this is what
   anything else. Confirmed in practice: the EP4CGX150 supplies **2.5 V** here,
   and feeding VCCB from a local 3.3 V rail instead would put 3.3 V onto 2.5 V
   JTAG inputs — out of spec for the target.
+* **J3 (SWD) has SWCLK and SWDIO swapped at the Pico** — the EasyEDA Pico 2
+  symbol names pad 41 SWDIO, but pad 41 is the Pico's SWCLK. Needs a reversed
+  cable on this revision; fix the symbol or the nets next time (see Fault 2).
 * **`GP3`/`GP11` DIR pins are shared** across the three outbound shifters of a
   channel; there is no per-pin output enable.
 * **GP6 / GP14** sit directly on the UART RX lines with only 100 Ω — never
