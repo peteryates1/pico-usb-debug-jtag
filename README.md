@@ -425,7 +425,7 @@ with a Pico 1 (RP2040, rev B2) in place of the schematic's Pico 2.
 | EP4CGX150 on J5 | IDCODE `0x028040dd`; `jtagconfig` `028040DD EP4CGX150` |
 | **Configure** | `jop_dbfpga.sof` (4.88 MB) in 72 s, programmer start to end; DoAll 68/68 on the board afterwards |
 
-### Cycling test (2026-10-15, R15 still off)
+### Cycling test (2026-10-15)
 
 Ten cycles, each: pin-level IDCODE, ONE single-try Quartus chain scan
 (`JTAG_SCAN_TRIES=1`), a full configuration of `jop_dbfpga.sof`, then DoAll over
@@ -437,6 +437,10 @@ the board's console. Ten single-try scans before and after.
 | Configurations | **10/10**, 74-75 s each |
 | DoAll | **68/68 every cycle**, no failures, no uncaught exceptions |
 | USB | same bus:dev throughout — never re-enumerated |
+
+Run twice: first with R15 off, then again after R15 was refitted (a part that
+read 10 kΩ before and after soldering). Both runs gave exactly the table above;
+with R15 back the first pin-level read after power-up was `0x028040dd`.
 
 The breadboard cable read 3/10 single-try on the same board in August, and later
 died with the cable re-enumerating. Nothing of that kind here so far; worth
@@ -459,8 +463,9 @@ With TCK/TMS/TDI parked high by `jtag_wiggle`:
 A DRIVEN pin that sits at 0.72 V is heavily loaded: GP11 to GND measured
 **20 Ω**. R15 measures 10 kΩ out of circuit; with it removed GP11 reads 11.2 kΩ
 (the unpowered chips' protection diodes) and the chain works — the short was
-solder bridging R15's pads. R15 is OFF the board at the moment; refit it, then
-expect ~5 kΩ unpowered (10k in parallel with that diode path), not tens of ohms.
+solder bridging R15's pads. R15 was refitted the same day (10 kΩ before and
+after soldering); unpowered, GP11 to GND should then read ~5 kΩ (10k in
+parallel with that diode path), not tens of ohms.
 
 **While DIR is low and VTREF is up, the outbound shifters drive the Pico's
 TCK/TMS/TDI pads against the Pico's own outputs** — tens of mA per pin, for as
