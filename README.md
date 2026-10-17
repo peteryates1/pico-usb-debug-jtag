@@ -419,7 +419,7 @@ with a Pico 1 (RP2040, rev B2) in place of the schematic's Pico 2.
 | Step | Result |
 |------|--------|
 | Firmware | `../pico-usb-blaster`, `-DBOARD_TYPE=2 -DJTAG_CLKDIV=5 -DTDO_DIAG_PULLDOWN=0`, fresh build dir `src/build-jtag0` |
-| Flash | over USB, not SWD: the blank Pico boots as `RP2 Boot`, then `picotool load -v -x pico_usb_blaster.uf2` |
+| Flash | over USB: the blank Pico boots as `RP2 Boot`, then `picotool load -v -x pico_usb_blaster.uf2`. SWD on J3 also works, with a good straight cable (see Fault 2) |
 | Enumerates | `09fb:6001`, iManufacturer `Pico`, iProduct `USB Blaster`, serial **`e66440a2`** |
 | No target on J5 | TDO=1, IDCODE `0xffffffff` — healthy: no VTREF, shifters off |
 | EP4CGX150 on J5 | IDCODE `0x028040dd`; `jtagconfig` `028040DD EP4CGX150` |
@@ -471,26 +471,36 @@ parallel with that diode path), not tens of ohms.
 TCK/TMS/TDI pads against the Pico's own outputs** — tens of mA per pin, for as
 long as the target stays powered. Power the target down until DIR is fixed.
 
-### Fault 2, open: SWD over J3 does not connect
+### Fault 2, resolved: SWD over J3 failed because of the cable (2026-10-17)
 
 OpenOCD through the Raspberry Pi Debug Probe (`adapter serial
-E6647C740343412F`, `target/rp2040.cfg`): `Too long SWD WAIT, issuing DAPABORT`
-then `Failed to connect multidrop rp2040.dap0`, at 5 MHz, 1 MHz and 500 kHz,
-with the Pico powered and running. The same probe flashed the breadboard Pico
-in August. Two suspects:
+E6647C740343412F`, `target/rp2040.cfg`) gave `Too long SWD WAIT, issuing
+DAPABORT` then `Failed to connect multidrop rp2040.dap0`, at 5 MHz, 1 MHz and
+500 kHz. Three cables:
 
-1. **SWCLK and SWDIO swapped by the footprint.** The EasyEDA "Raspberry Pi
-   Pico 2" part names pad 41 `SWDIO` and pad 43 `SWCLK`. In the footprint
-   (`COMM-SMD_L51.0-W21.0-P2.54_SC0916`) pad 41 is the debug pad next to pin 20
-   (GP15), and pinout references put the Pico's SWCLK on that side (order
-   SWCLK, GND, SWDIO; SWCLK on the left in a USB-up top view). Not yet checked
-   against Raspberry Pi's datasheet. J3's own order (1 SWCLK, 2 GND, 3 SWDIO)
-   matches the Raspberry Pi debug connector, so the cable is not the problem.
-2. **The pads are not joined.** The Pico's SWD pins are plated holes, not
-   castellations; pads 41–43 under them connect only if solder was fed into
-   the holes.
+| Cable | Result |
+|-------|--------|
+| the original | fails |
+| one with its two signal wires crossed | fails |
+| a straight one from the same batch | **connects**: both Cortex-M0+ cores examined |
 
-Settle it with continuity from J3.1 to the Pico debug pad next to GP15.
+**The board is right; the original cable was not.** J3 and the Pico's debug pads
+are wired correctly. An earlier note here blamed the EasyEDA "Pico 2" part for
+swapping SWCLK and SWDIO, from the footprint's pad positions plus pinout pages;
+that inference was wrong, and the crossed cable failing confirms the board
+needs a straight-through cable.
+
+With SWD working, the firmware's pin state read back from the RP2040 (JTAG0
+profile, idle, R15 refitted):
+
+| Register | Value | Meaning |
+|----------|-------|---------|
+| `GPIO_OE` 0xd0000020 | `0x02160d80` | GP7, 8, 10, 11, 17, 18, 20 driven (+ GP25, the Pico LED); GP19 TDO an input |
+| `GPIO_OUT` 0xd0000010 | `0x00060980` | **GP11 DIR high**; TMS, TDI high; TCK low |
+| `GPIO_IN` 0xd0000004 | `0x01060b81` | GP11 reads high at the pad; GP19 TDO 0 (R16, target idle); GP9 1 (pull-up) |
+
+Also seen: the Debug Probe runs old firmware (1.0.1), which OpenOCD works around
+("Using low-performance workaround"); it was not the cause here.
 
 ### Flashing without SWD, from a VM
 
