@@ -186,10 +186,11 @@ Three candidate personalities, all previously proven on a bare Pico:
 
 **Can they coexist in one image?** Not usefully as a single USB device. The
 Blaster personality only works because it clones the FT245 descriptor
-byte-for-byte (VID/PID `09fb:6001`, bulk-only, vendor class) so Quartus's
-driver binds to it; DirtyJTAG is a different vendor protocol on a different
-VID/PID. A composite device would break the descriptor match Quartus relies
-on. Realistic options, in order of preference:
+(VID/PID `09fb:6001`, bulk-only, vendor class) so Quartus's driver binds to
+it; DirtyJTAG is a different vendor protocol on a different VID/PID, and one
+USB device has one VID/PID. A second *Blaster* interface does fit in the
+same device, but Quartus ignores it (tested below). Realistic options, in
+order of preference:
 
 1. **One personality per flashed image**, selected at build time; swap the
    `.uf2` (or reflash over J3 with the debug probe) when you need the other.
@@ -200,10 +201,37 @@ on. Realistic options, in order of preference:
 3. **Two boards**, each built for one purpose — the board is cheap and there
    are two independent JTAG channels anyway.
 
-Note the board's two JTAG channels are *independent GPIO groups*, so a single
-image could plausibly drive JTAG0 as DirtyJTAG **and** JTAG1 as a Blaster only
-if the USB side were composite — which is exactly the thing that breaks
-Quartus. Treat one channel as active per image until that's proven otherwise.
+### Tested 2026-10-18: one image, two Blaster interfaces
+
+The two JTAG channels are independent GPIO groups, so one image can drive both.
+`../pico-usb-blaster` branch `dual-interface`, `-DBOARD_TYPE=3`, puts JTAG0 on
+USB interface 0 and JTAG1 on interface 1 (an FT2232 channel B's endpoints,
+`0x83` IN / `0x04` OUT), with Quartus 25.1:
+
+| Question | Result |
+|----------|--------|
+| Does Quartus list a second cable? | **No.** `jtagconfig` lists the Pico once (`USB Blaster [1-5]`); interface 1 is ignored. |
+| Does the extra interface disturb interface 0? | **No.** EP4CGX150 single-try chain scans 22/22, two configurations of `jop_dbfpga.sof` (75 s each, as on the single-channel image), DoAll 68/68 after each. |
+| Does channel 1 work? | **Yes.** Driven through interface 1 (`jtag_wiggle e66440a2 tck high 1`), exactly GP27 / GP22 / GP21 move (`GPIO_OUT` read back over SWD) and JTAG0's pins do not. With nothing on J7, TDO reads its pull-up. |
+
+This README used to say a composite device "would break the descriptor match
+Quartus relies on". It does not; it just gives Quartus no second cable. The
+board went back to the single-channel `BOARD_DEBUG_JTAG0` image. Ways to use
+both channels at once:
+
+- **Chain the channels in firmware** — one cable with both targets on its
+  chain, which stock Quartus handles (`quartus_pgm ... file.sof@2`). TCK and TMS
+  go to both ports, and the Pico relays JTAG0's TDO into JTAG1's TDI on every
+  bit. An unpowered target need not break the chain (untested): R16/R17 sit
+  on the header side of U5/U9, and an SN74LVC1T45 is high-Z on both sides when
+  VCCB (VTREF) is 0, so the firmware can tell an absent target by flipping the
+  TDO pad's pull and seeing whether the reading follows. With the FPGA off,
+  IDCODE already reads `0xffffffff`, the pull-up.
+- **A non-Quartus client on interface 1** — openFPGALoader's USB-Blaster
+  driver calls `ftdi_usb_open(0x09fb, 0x6001)`, libftdi's default interface
+  of the first match, so it would need a patch selecting `INTERFACE_B` and a
+  serial.
+- **Two boards** — option 3 above.
 
 ### Bring-up target: JTAG1 as an Altera USB-Blaster
 
