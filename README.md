@@ -129,7 +129,7 @@ whose `DIR` is **hard-wired to GND**, so it is permanently target→Pico.
 |-----|------|-------|-------|-------|-------|
 | **J3** | JST SH 3-pin | SWCLK | GND | SWDIO | Debug **the Pico itself**. Labelled per the Raspberry Pi debug connector spec, but on this revision pin 1 reaches the Pico's SWDIO and pin 3 its SWCLK: use a reversed cable (see Fault 2) |
 | **J1** | JST SH 3-pin | TX | GND | RX | UART A — TX ← GP4 via 100 Ω (R1); RX → GP6 via 100 Ω (R2) **and** → 74LVC2G17 schmitt → GP5 (R3/U2A) |
-| **J2** | JST SH 3-pin | TX | GND | RX | UART B — TX ← GP12 via 100 Ω (R4); RX → GP14 via 100 Ω (R5) **and** → schmitt → GP13 (R6/U2B) |
+| **J2** | JST SH 3-pin | TX | GND | RX | UART B — TX ← GP12 via 100 Ω (R4); RX → GP14 via 100 Ω (R5) **and** → schmitt → GP13 (R6/U2B). Same wiring as the Debug Probe's SWD port (see *LEDs and controls*) |
 | **J4** | JST SH 3-pin | GP0 | GND | GP1 | UART C — direct, no series R, no buffer |
 
 Each buffered UART RX lands on the *natural* SDK UART pin
@@ -139,18 +139,31 @@ line.
 
 ### LEDs and controls
 
-| Ref | GPIO | Pico pin | Series R |
-|-----|------|----------|----------|
-| LED5 | GP2  | 4  | R11 470 Ω |
-| LED1 | GP7  | 10 | R7 470 Ω |
-| LED2 | GP8  | 11 | R8 470 Ω |
-| LED7 | GP10 | 14 | R13 470 Ω |
-| LED3 | GP15 | 20 | R9 470 Ω |
-| LED4 | GP16 | 21 | R10 470 Ω |
-| LED6 | GP28 | 34 | R12 470 Ω |
+| Ref | GPIO | Pico pin | Series R | Function |
+|-----|------|----------|----------|----------|
+| LED7 | GP10 | 14 | R13 470 Ω | JTAG0 |
+| LED6 | GP28 | 34 | R12 470 Ω | JTAG1 |
+| LED5 | GP2  | 4  | R11 470 Ω | pico-debug: USB connected |
+| LED1 | GP7  | 10 | R7 470 Ω | pico-debug: UART RX |
+| LED2 | GP8  | 11 | R8 470 Ω | pico-debug: UART TX |
+| LED3 | GP15 | 20 | R9 470 Ω | pico-debug: DAP connected |
+| LED4 | GP16 | 21 | R10 470 Ω | pico-debug: DAP running |
 
 All are active-high, cathode to GND. **SW4** pulls `RUN` to GND — hardware
 reset. `GP9` is the only completely unconnected GPIO on the board.
+
+The five pico-debug LEDs are on the Raspberry Pi Debug Probe's LED pins
+(`DEBUG_PROBE_*_LED_PIN` in the pico-sdk's `boards/debug_probe.h`; our local
+SDK 2.2.0 checkout does not have that file yet, upstream master does). J1 and J2
+follow the same probe's pin map (debugprobe's `board_debug_probe_config.h`):
+J1 is its UART port (TX GP4, RX GP5), and **J2 is its SWD port**, not a second
+UART: SWCLK GP12, SWDIO GP14, with GP13 reading SWDIO back through U2B.
+
+The Blaster firmware lights its channel's LED while the host has the cable's
+outputs enabled, and never touches a pico-debug pin: `pico-usb-blaster`'s
+`board_config.h` lists them and the build fails if a JTAG profile uses one.
+Until 2026-10-21 the firmware drove LED1/LED2 with the Blaster's nCE/nCS bits
+(AS mode, not wired on this board), and JTAG1's profile used LED7.
 
 ### Full GPIO allocation
 
