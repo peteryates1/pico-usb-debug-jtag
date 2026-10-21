@@ -160,8 +160,12 @@ J1 is its UART port (TX GP4, RX GP5), and **J2 is its SWD port**, not a second
 UART: SWCLK GP12, SWDIO GP14, with GP13 reading SWDIO back through U2B.
 
 The Blaster firmware lights its channel's LED while the host has the cable's
-outputs enabled, and never touches a pico-debug pin: `pico-usb-blaster`'s
-`board_config.h` lists them and the build fails if a JTAG profile uses one.
+outputs enabled, and its JTAG side never touches a pico-debug pin:
+`pico-usb-blaster`'s `board_config.h` lists them, and the build fails if a JTAG
+profile uses one. Since 2026-10-21 the same image also runs part of the
+pico-debug side: J1's UART as a USB serial port, with LED1/LED2 for its
+traffic and LED5 for USB connected. That code may use only pico-debug pins,
+also checked at build time (see *Tested 2026-10-21* below).
 Until 2026-10-21 the firmware drove LED1/LED2 with the Blaster's nCE/nCS bits
 (AS mode, not wired on this board), and JTAG1's profile used LED7.
 
@@ -245,6 +249,28 @@ both channels at once:
   of the first match, so it would need a patch selecting `INTERFACE_B` and a
   serial.
 - **Two boards** — option 3 above.
+
+### Tested 2026-10-21: the Blaster and the J1 serial port in one device
+
+The pico-debug side's functions are USB *interfaces*, not a VID/PID, so they
+can join the Blaster's device. The first one is J1's UART:
+`../pico-usb-blaster` branch `cdc-uart`, `-DBOARD_TYPE=2`. It adds a CDC-ACM
+serial port ("J1 UART") as interfaces 1-2 on `uart1`, GP4/GP5. The Blaster
+stays interface 0, and the device descriptor is unchanged.
+
+| Question | Result |
+|----------|--------|
+| Does Linux create the port? | **Yes.** `cdc_acm` binds interface 1: `/dev/serial/by-id/usb-Pico_USB_Blaster_e66440a2-if01`. |
+| Does the serial port disturb Quartus? | **No.** The standard ten-cycle run: 30/30 single-try chain scans, 10/10 configurations at 75 s (the same as without the port), DoAll 68/68 each, no re-enumeration. |
+| Does the bridge carry data? | **Yes, up to 2.5 Mbaud.** In UART1's internal loopback (switched on over SWD), every byte came back at 115200, 921600, 2 M and 2.5 Mbaud. At 3 Mbaud, a continuous stream loses data: the bridge moves about 210 KB/s. |
+| Both at once? | **Yes.** A 2 Mbaud loopback stream ran through three scan-configure-DoAll cycles: 66 MB, zero errors, DoAll 68/68 each. Each configuration took 81-82 s instead of 75 s: one Pico loop serves both. |
+
+GP6 matters here. It is wired straight to J1 RX through R2, and an RP2040 pad
+comes out of reset with its pull-down on, so J1 RX would sit LOW (a
+continuous break) with nothing plugged in. The firmware keeps GP6 an input
+with its pull-up instead, so an open J1 idles high, and GP5 reads 1 through
+U2A. Not tested yet: the J1 pins themselves (needs a TX-to-RX jumper), J4,
+and J2 as a CMSIS-DAP SWD port.
 
 ### Bring-up target: JTAG1 as an Altera USB-Blaster
 
