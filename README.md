@@ -164,8 +164,10 @@ outputs enabled, and its JTAG side never touches a pico-debug pin:
 `pico-usb-blaster`'s `board_config.h` lists them, and the build fails if a JTAG
 profile uses one. Since 2026-10-21 the same image also runs part of the
 pico-debug side: J1's UART as a USB serial port, with LED1/LED2 for its
-traffic and LED5 for USB connected. That code may use only pico-debug pins,
-also checked at build time (see *Tested 2026-10-21* below).
+traffic and LED5 for USB connected. Since 2026-10-22 it is also J2's CMSIS-DAP
+SWD probe, with LED3/LED4 for DAP connected and running. That code may use only
+pico-debug pins, also checked at build time (see *Tested 2026-10-21* and
+*Tested 2026-10-22* below).
 Until 2026-10-21 the firmware drove LED1/LED2 with the Blaster's nCE/nCS bits
 (AS mode, not wired on this board), and JTAG1's profile used LED7.
 
@@ -271,6 +273,31 @@ continuous break) with nothing plugged in. The firmware keeps GP6 an input
 with its pull-up instead, so an open J1 idles high, and GP5 reads 1 through
 U2A. Not tested yet: the J1 pins themselves (needs a TX-to-RX jumper), J4,
 and J2 as a CMSIS-DAP SWD port.
+
+### Tested 2026-10-22: J2 as a CMSIS-DAP probe in the same device
+
+The second pico-debug function is J2's SWD port: `../pico-usb-blaster` branch
+`j2-cmsis-dap`, `-DBOARD_TYPE=2`. It adds a CMSIS-DAP v2 interface ("J2
+CMSIS-DAP", interface 3, bulk 0x05/0x85) running the Debug Probe's own code:
+ARM's CMSIS-DAP command handling and debugprobe's PIO SWD layer, on pio1 beside
+the Blaster's pio0. The target was the breadboard Pico (`e6616408`, an RP2040)
+on J2.
+
+| Question | Result |
+|----------|--------|
+| Does OpenOCD find it? | **Yes**, by the carrier's serial: `adapter serial e66440a2` gives "Using CMSIS-DAPv2 interface with VID:PID=0x09fb:0x6001". No kernel driver claims the interface. |
+| Does it debug an RP2040? | **Yes.** `test_swd_dap.py`: DPIDR 0x0bc12477 through the multidrop select, CHIP_ID 0x20002927, bootrom block reads that agree, a WATCHDOG_SCRATCH0 round trip, core 0 halt and resume, and 64 KB flash reads at 66 KB/s (1 MHz SWCLK) and 229 KB/s (5 MHz). |
+| Does it disturb Quartus? | **No**, with the probe idle. The standard ten-cycle run: 30/30 single-try chain scans, 10/10 configurations at 74-76 s, DoAll 68/68 each, no re-enumeration. |
+| Both at once? | **Yes, sharing the Pico.** OpenOCD read the target's flash through J2 nonstop at 5 MHz SWCLK during three scan-configure-DoAll cycles: 5,027 reads of 16 KB (82 MB in 391 s), all identical to the first, no errors. The configurations took 90-91 s instead of 74-76 s, and DoAll ran 68/68 each. |
+
+The first run failed with every SWD acknowledge "JUNK". The cable to the
+breadboard Pico had SWCLK and SWDIO reversed: driving J2.3 from the carrier
+moved GP13 through U2B, driving J2.1 did not, and a test build with the two
+roles swapped connected at once. A cable with the two wires crossed fixed it.
+J2 itself follows the Debug Probe's pinout: pin 1 SWCLK, pin 3 SWDIO.
+
+Not tested yet: flashing a target over J2 (the remote-reflash drill), J4, and
+the J1 pins themselves.
 
 ### Bring-up target: JTAG1 as an Altera USB-Blaster
 
@@ -646,9 +673,16 @@ pull-up.
 cd ../pico-usb-blaster/src/build
 PICO_SDK_PATH=~/workspaces/pico-sdk cmake .. -DPICO_BOARD=pico
 make pico_usb_blaster -j$(nproc)
-openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg \
+openocd -f interface/cmsis-dap.cfg -c "adapter serial E6647C740343412F" \
+  -f target/rp2040.cfg \
   -c "adapter speed 5000; program pico_usb_blaster.elf verify reset exit"
 ```
+
+Name the probe: `E6647C740343412F` is the Raspberry Pi Debug Probe on J3.
+Since 2026-10-22 the carrier is a CMSIS-DAP probe itself (J2, serial
+`e66440a2`). Without `adapter serial`, OpenOCD takes the first CMSIS-DAP it
+finds, and if that is the carrier, this command reflashes the Pico on J2
+instead of the carrier's own.
 
 Select a different channel/harness with
 `cmake .. -DBOARD_TYPE=2` (`0` = flying leads, `1` = JTAG1, `2` = JTAG0),
