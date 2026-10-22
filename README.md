@@ -299,6 +299,29 @@ J2 itself follows the Debug Probe's pinout: pin 1 SWCLK, pin 3 SWDIO.
 Not tested yet: flashing a target over J2 (the remote-reflash drill), J4, and
 the J1 pins themselves.
 
+### Tested 2026-10-22: JTAG1 on a Xilinx target, the Wukong
+
+JTAG1 (J8) on the QMTECH Wukong's JTAG header (XC7A100T), with the JTAG1
+image: `../pico-usb-blaster` `0a9eeae` built with `-DBOARD_TYPE=1`, J1 and J2
+as before. The Wukong's Pico 2 W came off its JTAG pins, and its console stayed
+on the Wukong's own CH340N.
+
+| Question | Result |
+|----------|--------|
+| Does JTAG1 read the chain? | **Yes.** `jtag_pintest e66440a2` reads IDCODE `0x13631093` (XC7A100T), and `quartus_pgm -a` lists `13631093` through the Blaster protocol. |
+| Does it configure the FPGA? | **Yes**, with openFPGALoader's usb-blaster driver: `wukongSdram`'s 1.46 MB bitstream into SRAM in 4.0-4.1 s, status DONE=1 INIT=1, six times out of six, DoAll 68/68 after each. |
+
+openFPGALoader's usb-blaster driver opens the FIRST `09fb:6001`, and three are
+attached here (the Terasic, this carrier, the breadboard Pico): unpatched,
+`--detect` found the Terasic's EP4CE115. `~/workspaces/openfpgaloader-usbblaster-busdev.patch`
+makes it honour `--busdev-num`, as the dirtyJtag patch does, so
+`--busdev-num "$(jtag_probe_map --busdev ep4cgx150)"` reaches the carrier (that
+alias names the carrier's serial). It is built in `~/workspaces/openFPGALoader/build`,
+not installed.
+
+One channel at a time: an image drives JTAG0 or JTAG1, chosen at build time,
+so while this one is on, the EP4CGX150 on JTAG0 has no cable.
+
 ### Bring-up target: JTAG1 as an Altera USB-Blaster
 
 Port `../pico-usb-blaster` with these changes:
