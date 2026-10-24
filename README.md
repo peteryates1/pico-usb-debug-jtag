@@ -651,13 +651,13 @@ profile, idle, R15 refitted):
 | `GPIO_OUT` 0xd0000010 | `0x00060980` | **GP11 DIR high**; TMS, TDI high; TCK low |
 | `GPIO_IN` 0xd0000004 | `0x01060b81` | GP11 reads high at the pad; GP19 TDO 0 (R16, target idle); GP9 1 (pull-up) |
 
-Also seen: the Debug Probe runs old firmware (1.0.1), which OpenOCD works around
-("Using low-performance workaround"); it was not the cause here.
+Also seen: the Debug Probe ran old firmware (1.0.1), which OpenOCD works around
+("Using low-performance workaround"); it was not the cause here. Updated to
+v2.3.1 on 2026-10-24 (see Fault 3).
 
-### Fault 3, open: J3 drops long SWD transfers (2026-10-22, 2026-10-24)
+### Fault 3, parked: SWD through J3 fails within seconds (2026-10-22, 2026-10-24)
 
-With a reversed cable J3 connects, but it does not hold through long
-transfers:
+With a reversed cable J3 connects, but the link does not hold:
 
 - 2026-10-22: a routine `program` through the Debug Probe at 5 MHz lost the
   link partway through the write. Every retry then failed in the bootrom's
@@ -669,13 +669,29 @@ transfers:
   long SWD WAIT" and "Failed to connect multidrop". After that not even 1 MHz
   connected. The firmware itself was fine: the carrier's J2 probe was still
   reading its own target.
-- The same Debug Probe on a bare Pico the same day: 720 reads at 5 MHz in
-  120 s without an error, four 2 MB flash dumps identical, and six
-  `program ... verify` writes at 5 MHz, all good. So neither the probe nor its
-  old firmware is the cause.
+- The same Debug Probe on a bare Pico the same day, with its own cable: 720
+  reads at 5 MHz in 120 s without an error, four 2 MB flash dumps identical,
+  and six `program ... verify` writes at 5 MHz, all good. So the errors do not
+  come from the probe.
+- 2026-10-24 afternoon, two reversed JST-SH 3-pin cables from one pack, as
+  received: both fail the same way. Read soaks (16 KB per read) got their
+  first error after 60 reads and after 1 read at 5 MHz, after 8 reads at
+  1 MHz, and on the first block of the boot ROM, so neither the speed nor
+  flash (XIP) matters. OpenOCD reports "Too long SWD WAIT" and "Failed to
+  connect multidrop", but its debug log (`-d3`) shows the acknowledges as
+  `JUNK`: nothing valid came back.
+- After those errors the Debug Probe, on firmware 1.0.1, got no answer at any
+  speed, even 100 kHz, until its USB was replugged. Re-seating either end of
+  the cable, SW4, a USB reset of the probe and two idle minutes did not bring
+  it back.
+- The probe was updated to debugprobe v2.3.1 (`bcdDevice 2.31`) the same day.
+  J3 still failed in the first session after the update, while the updated
+  probe on the bare Pico made 1,584 reads at 5 MHz in 120 s without an error.
 
-Suspects: J3's wiring, and the joints of the Pico's SWD pads on the carrier.
-Until the cause is found, reflash the carrier by USB, not through J3.
+Still open: J3 and the Pico's SWD pads, or this pack of cables. J3's
+connector and the pad joints look and meter fine, and J3's two nets go only
+to the Pico's SWD pads. Not yet tried: a reversed cable from another source.
+Parked; reflash the carrier by USB, not through J3.
 
 ### Flashing without SWD, from a VM
 
@@ -735,9 +751,11 @@ Quartus, which selects by cable index and is unaffected.
 
 `../pico-usb-blaster`'s README has the build line for each profile.
 
-On the board (2026-10-24): the experimental two-channel image from
-`../pico-usb-blaster`'s `dual-jtag` branch (WIP `471742c`). The validated
-JTAG0 image of `0a9eeae` goes back on at the next USB reflash.
+On the board since 2026-10-24, flashed by USB: the validated JTAG0 image,
+`0a9eeae` built with `-DBOARD_TYPE=2` (ELF sha256 `bf7c125d...`). Checked
+after the reflash on the EP4CGX150: 10/10 single-try chain scans, then three
+cycles of a chain scan, a full configuration in 74-75 s and DoAll 68/68, then
+10/10 scans again. J2 read the Wukong's Pico 2 W (CHIP_ID `0x20004927`).
 
 ### Flashing
 
