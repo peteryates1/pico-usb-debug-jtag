@@ -654,6 +654,29 @@ profile, idle, R15 refitted):
 Also seen: the Debug Probe runs old firmware (1.0.1), which OpenOCD works around
 ("Using low-performance workaround"); it was not the cause here.
 
+### Fault 3, open: J3 drops long SWD transfers (2026-10-22, 2026-10-24)
+
+With a reversed cable J3 connects, but it does not hold through long
+transfers:
+
+- 2026-10-22: a routine `program` through the Debug Probe at 5 MHz lost the
+  link partway through the write. Every retry then failed in the bootrom's
+  flash calls, the link degraded until no debug port answered, and the Pico
+  dropped off USB with flash sector 0 erased. After a power cycle it came up
+  as `RP2 Boot` and was reflashed over USB.
+- 2026-10-24, with a new reversed wire: a read soak (16 KB of flash per read,
+  5 MHz, the firmware running) made 14 clean reads, then failed with "Too
+  long SWD WAIT" and "Failed to connect multidrop". After that not even 1 MHz
+  connected. The firmware itself was fine: the carrier's J2 probe was still
+  reading its own target.
+- The same Debug Probe on a bare Pico the same day: 720 reads at 5 MHz in
+  120 s without an error, four 2 MB flash dumps identical, and six
+  `program ... verify` writes at 5 MHz, all good. So neither the probe nor its
+  old firmware is the cause.
+
+Suspects: J3's wiring, and the joints of the Pico's SWD pads on the carrier.
+Until the cause is found, reflash the carrier by USB, not through J3.
+
 ### Flashing without SWD, from a VM
 
 - The Pico is a different USB device in each mode — `2e8a:0003 RP2 Boot` in
@@ -706,33 +729,47 @@ Quartus, which selects by cable index and is unaffected.
 
 | CMake option | Effect |
 |--------------|--------|
-| `-DBOARD_TYPE=0\|1\|2` | flying leads / JTAG1 / JTAG0 pin profile |
+| `-DBOARD_TYPE=0\|1\|2` | flying leads / JTAG1 / JTAG0 pin profile; `2` is the default since `540871f` |
 | `-DJTAG_CLKDIV=n` | TCK = sys_clk / (n × 4); `5` = 6 MHz, `40` = 750 kHz |
 | `-DTDO_DIAG_PULLDOWN=1` | diagnostic: invert the TDO pull (see above) |
 
-Currently flashed: `BOARD_DEBUG_JTAG1`, `JTAG_CLKDIV=5` (6 MHz), production
-pull-up.
+`../pico-usb-blaster`'s README has the build line for each profile.
 
-### Flashing over SWD
+On the board (2026-10-24): the experimental two-channel image from
+`../pico-usb-blaster`'s `dual-jtag` branch (WIP `471742c`). The validated
+JTAG0 image of `0a9eeae` goes back on at the next USB reflash.
+
+### Flashing
+
+Build the JTAG0 image:
 
 ```bash
-cd ../pico-usb-blaster/src/build
-PICO_SDK_PATH=~/workspaces/pico-sdk cmake .. -DPICO_BOARD=pico
-make pico_usb_blaster -j$(nproc)
-openocd -f interface/cmsis-dap.cfg -c "adapter serial E6647C740343412F" \
-  -f target/rp2040.cfg \
-  -c "adapter speed 5000; program pico_usb_blaster.elf verify reset exit"
+cd ../pico-usb-blaster/src
+PICO_SDK_PATH=~/workspaces/pico-sdk cmake -S . -B build-jtag0 -DPICO_BOARD=pico -DBOARD_TYPE=2
+make -C build-jtag0 -j$(nproc)
 ```
 
-Name the probe: `E6647C740343412F` is the Raspberry Pi Debug Probe on J3.
-Since 2026-10-22 the carrier is a CMSIS-DAP probe itself (J2, serial
-`e66440a2`). Without `adapter serial`, OpenOCD takes the first CMSIS-DAP it
-finds, and if that is the carrier, this command reflashes the Pico on J2
-instead of the carrier's own.
+**By USB**, the way to use while J3 is unreliable (Fault 3): hold BOOTSEL,
+press and release SW4, release BOOTSEL, map `RP2 Boot` (`2e8a:0003`) into the
+VM, then
 
-Select a different channel/harness with
-`cmake .. -DBOARD_TYPE=2` (`0` = flying leads, `1` = JTAG1, `2` = JTAG0),
-or edit the default in `src/board_config.h`.
+```bash
+picotool load -v -x build-jtag0/pico_usb_blaster.uf2
+```
+
+**Over SWD on J3**, with a reversed cable:
+
+```bash
+openocd -f interface/cmsis-dap.cfg -c "adapter serial E6647C740343412F" \
+  -c "set USE_CORE 0" -f target/rp2040.cfg -c "adapter speed 1000" \
+  -c "program build-jtag0/pico_usb_blaster.elf verify reset exit"
+```
+
+Name the probe: `E6647C740343412F` is the Raspberry Pi Debug Probe. Since
+2026-10-22 the carrier is a CMSIS-DAP probe itself (J2, serial `e66440a2`).
+Without `adapter serial`, OpenOCD takes the first CMSIS-DAP it finds, and if
+that is the carrier, this command reflashes the Pico on J2 instead of the
+carrier's own.
 
 ### Two Blasters on one bus
 
