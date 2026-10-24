@@ -296,6 +296,10 @@ moved GP13 through U2B, driving J2.1 did not, and a test build with the two
 roles swapped connected at once. A cable with the two wires crossed fixed it.
 J2 itself follows the Debug Probe's pinout: pin 1 SWCLK, pin 3 SWDIO.
 
+On 2026-10-24 J2 also reached an RP2350, the Wukong's Pico 2 W: OpenOCD with
+`target/rp2350.cfg` read back its 27,528-byte flash image at 1 MHz and at 5 MHz,
+identical to the build both times.
+
 Not tested yet: flashing a target over J2 (the remote-reflash drill), J4, and
 the J1 pins themselves.
 
@@ -319,8 +323,27 @@ makes it honour `--busdev-num`, as the dirtyJtag patch does, so
 alias names the carrier's serial). It is built in `~/workspaces/openFPGALoader/build`,
 not installed.
 
-One channel at a time: an image drives JTAG0 or JTAG1, chosen at build time,
-so while this one is on, the EP4CGX150 on JTAG0 has no cable.
+This image drives one channel, chosen at build time, so while it was on, the
+EP4CGX150 on JTAG0 had no cable.
+
+### Found 2026-10-22: a fault on JTAG1 (parked)
+
+Later that day, driving JTAG1's TDI low collapsed the whole channel: IR capture
+0x00, IDCODE 0, every bit read 0. With TDI held high, a bit-banged IDCODE read
+was still right, which is why openFPGALoader's `--detect` kept passing: it holds
+TDI high and shifts 0xff. The fault follows the channel. With the cables
+swapped, the Wukong and its 200 mm cable work on JTAG0 with TDI low or high,
+and the EP4CGX150 fails the same way on JTAG1. JTAG1 had configured the Wukong
+17 times that morning.
+
+Suspects: U7 (TDI1's SN74LVC1T45), R20, or a bridge from the TDI1 net to
+JTAG1's VCCB (VTREF), which would sag the supply of U7, U8 and U10 while TDI is
+low.
+
+Until it is repaired, the carrier drives JTAG0 only (the EP4CGX150), and the
+Wukong is back on its own Pico 2 W. An image that drives both channels (JTAG0
+for Quartus, JTAG1 as a second Blaster interface for openFPGALoader) is parked
+on `../pico-usb-blaster`'s `dual-jtag` branch; re-test it after the repair.
 
 ### Bring-up target: JTAG1 as an Altera USB-Blaster
 
